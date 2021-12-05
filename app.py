@@ -56,11 +56,23 @@ def load_emotion():
 
 
 if __name__ == '__main__':
-    emotion_dataloader = EmotionDataloader()
+    emotion_dataloader = EmotionDataloader(is_eval=True)
     generator, kp_detector, kp_detector_trainable = load_fomm()
 
     mtcnn = load_mtcnn()
     emotion_estimator = load_emotion()
+
+    st.sidebar.title('Please, enter emotion vector')
+    emotions_vector = []
+    for emotion in opt.emotion_list:
+        emotions_vector.append(
+            st.sidebar.slider(
+                emotion, min_value=0.0, max_value=1.0,
+                value=0.0,
+                step=0.01
+            )
+        )
+    emotions_vector = torch.tensor(emotions_vector, dtype=torch.float).unsqueeze(0).to(opt.device)
 
     img_file_buffer = st.file_uploader('img_file_uploader', type=['jpeg', 'jpg'], accept_multiple_files=False)
     if img_file_buffer is not None:
@@ -69,20 +81,8 @@ if __name__ == '__main__':
 
         inputs = img_array.unsqueeze(0).to(opt.device)
 
-        emotions_vector = []
         inputs_prepared = torch.stack([emotion_dataloader.prepare_img(pred) for pred in inputs])
-        default_emotion_vector = F.softmax(emotion_estimator(inputs_prepared) / opt.temperature, dim=1)
-
-        st.sidebar.title('Please, enter emotion vector')
-        for emotion, default_value in zip(opt.emotion_list, default_emotion_vector[0].detach().cpu().numpy()):
-            emotions_vector.append(
-                st.sidebar.slider(
-                    emotion, min_value=0.0, max_value=1.0,
-                    value=float(np.round(default_value, 2)),
-                    step=0.01
-                )
-            )
-        emotions_vector = torch.tensor(emotions_vector, dtype=torch.float).unsqueeze(0).to(opt.device)
+        # default_emotion_vector = F.softmax(emotion_estimator(inputs_prepared) / opt.temperature, dim=1)
 
         source_kp, _ = kp_detector(inputs)
         pred_kp, _ = kp_detector_trainable(inputs, emotions_vector)

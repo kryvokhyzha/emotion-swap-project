@@ -37,9 +37,9 @@ def calculate_f1(preds, labels):
 
 
 class EmotionDataloader:
-    def __init__(self):
+    def __init__(self, is_eval=False,):
         self.er_transformations = T.Compose([
-            T.RandomHorizontalFlip(p=0.5),
+            T.RandomHorizontalFlip(p=0.5 if not is_eval else 0.0),
             T.GaussianBlur(kernel_size=(3, 3)),
             T.GaussianBlur(kernel_size=(5, 9)),
             T.GaussianBlur(kernel_size=(7, 7)),
