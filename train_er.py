@@ -8,8 +8,10 @@ import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torchvision import transforms
+from torchvision import transforms as T
 from tqdm import tqdm
+
+from facenet_pytorch import MTCNN
 
 from sklearn.metrics import f1_score
 
@@ -34,9 +36,29 @@ def calculate_f1(preds, labels):
     return f1_score(labels, preds, average='micro')
 
 
-class Dataloader:
+class EmotionDataloader:
     def __init__(self):
+        self.er_transformations = T.Compose([
+            T.RandomHorizontalFlip(p=0.5),
+            T.GaussianBlur(kernel_size=(3, 3)),
+            T.GaussianBlur(kernel_size=(5, 9)),
+            T.GaussianBlur(kernel_size=(7, 7)),
+            T.Normalize(mean=opt.mean, std=opt.std),
+        ])
+        # self.mtcnn = MTCNN(
+        #     image_size=256, margin=0, min_face_size=20,
+        #     thresholds=[0.6, 0.7, 0.7], factor=0.709, post_process=True,
+        #     device=opt.device
+        # )
         self.model = Model(path_to_checkpoint=join(opt.path_to_stylegan_checkpoints, 'neutral'), device=opt.device)
+
+    def prepare_img(self, data):
+        data = data.add(1).div(2).squeeze()
+        # data = self.mtcnn(
+        #     data.permute(1, 2, 0).mul(255).detach().cpu().numpy(),
+        #     return_prob=False,
+        # ).add(1).div(2).squeeze()
+        return self.er_transformations(data).to(opt.device)
 
     def get_batch(self, batch_size):
         targets_b, emotions_b = [], []
@@ -45,7 +67,10 @@ class Dataloader:
             emo = random.choice(opt.emotion_list)
             self.model.load_checkpoint(join(opt.path_to_stylegan_checkpoints, emo))
             data = self.model.inference(1, noise)[1:]
-            targets_b.append(transforms.Normalize(mean=opt.mean, std=opt.std)(data[1].add(1).div(2).squeeze()).unsqueeze(0))
+            data = self.prepare_img(data[1].squeeze()).unsqueeze(0)
+
+            # targets_b.append(T.Normalize(mean=opt.mean, std=opt.std)(data).unsqueeze(0))
+            targets_b.append(data)
             # targets_b.append(data[1])
             target_emotion = torch.zeros([1, 7]).to(opt.device)
             target_emotion[:, opt.emotion_list.index(emo)] = 1
@@ -54,7 +79,7 @@ class Dataloader:
 
 
 def main():
-    dataloader = Dataloader()
+    dataloader = EmotionDataloader()
 
     emotion_model = EmotionModel().train().requires_grad_(True).to(opt.device)
     emotion_model.freeze_middle_layers()

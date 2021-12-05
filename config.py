@@ -44,15 +44,15 @@ class Config:
         self.lr_kp = 3e-4
         self.lr_er = 3e-4
 
-        self.batch_size_kp = 16
+        self.batch_size_kp = 10
         self.batch_size_er = 16
 
         self.n_write_log = 10
         self.save_n_steps = 300
 
-        self.l1_kp = 1
-        self.js_div_target = 0.02
-        self.l1_target = 0.5
+        self.l1_kp = 1.0
+        self.js_div_target = 0.1
+        self.l1_target = 0.1
         self.ce_loss = 0.1
         self.l1_heatmap = 0.1
 
@@ -62,8 +62,8 @@ class Config:
 
 
 opt = Config()
-os.makedirs(os.path.join(opt.path_to_kp_weights1, 'weights'), exist_ok=True)
-os.makedirs(os.path.join(opt.path_to_kp_weights2, 'weights'), exist_ok=True)
-os.makedirs(os.path.join(opt.path_to_kp_weights3, 'weights'), exist_ok=True)
-os.makedirs(os.path.join(opt.path_to_er_weights, 'weights'), exist_ok=True)
-os.makedirs(os.path.join(opt.path_to_er_weights2, 'weights'), exist_ok=True)
+# os.makedirs(os.path.join(opt.path_to_kp_weights1, 'weights'), exist_ok=True)
+# os.makedirs(os.path.join(opt.path_to_kp_weights2, 'weights'), exist_ok=True)
+# os.makedirs(os.path.join(opt.path_to_kp_weights3, 'weights'), exist_ok=True)
+# os.makedirs(os.path.join(opt.path_to_er_weights, 'weights'), exist_ok=True)
+# os.makedirs(os.path.join(opt.path_to_er_weights2, 'weights'), exist_ok=True)

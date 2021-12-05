@@ -5,17 +5,18 @@ import numpy as np
 import torch.nn.functional as F
 
 from facenet_pytorch import MTCNN
-from torchvision import transforms
 from PIL import Image
 
 from modules.keypoint_detector import KPDetector
 from config import opt
 from demo_autoencoder import load_checkpoints
 from emotion_recognition_model import EmotionModel
+from train_er import EmotionDataloader
 
 warnings.filterwarnings("ignore")
 
 
+@st.cache(allow_output_mutation=True)
 def load_fomm():
     generator, kp_detector = load_checkpoints(
         config_path=opt.path_to_fomm_checkpoints / 'config/vox-adv-256.yaml',
@@ -29,7 +30,7 @@ def load_fomm():
         single_jacobian_map=False, pad=0, adain_size=7,
     )
 
-    last_state = torch.load(opt.path_to_kp_weights_last2)
+    last_state = torch.load(opt.path_to_kp_weights_last3)
     kp_detector_trainable.load_state_dict(last_state['state_dict'])
     return (
         generator.eval().requires_grad_(False).to(opt.device),
@@ -38,18 +39,28 @@ def load_fomm():
     )
 
 
-if __name__ == '__main__':
-    generator, kp_detector, kp_detector_trainable = load_fomm()
-
-    mtcnn = MTCNN(
+@st.cache(allow_output_mutation=True,)
+def load_mtcnn():
+    return MTCNN(
         image_size=256, margin=100, min_face_size=20,
         thresholds=[0.6, 0.7, 0.7], factor=0.709, post_process=True,
         device=opt.device
     )
 
+
+@st.cache(allow_output_mutation=True)
+def load_emotion():
     emotion_estimator = EmotionModel()
-    emotion_estimator.load_state_dict(torch.load(opt.path_to_er_weights_last)['state_dict'])
-    emotion_estimator = emotion_estimator.eval().requires_grad_(False).to(opt.device)
+    emotion_estimator.load_state_dict(torch.load(opt.path_to_er_weights_last2)['state_dict'])
+    return emotion_estimator.eval().requires_grad_(False).to(opt.device)
+
+
+if __name__ == '__main__':
+    emotion_dataloader = EmotionDataloader()
+    generator, kp_detector, kp_detector_trainable = load_fomm()
+
+    mtcnn = load_mtcnn()
+    emotion_estimator = load_emotion()
 
     img_file_buffer = st.file_uploader('img_file_uploader', type=['jpeg', 'jpg'], accept_multiple_files=False)
     if img_file_buffer is not None:
@@ -59,8 +70,8 @@ if __name__ == '__main__':
         inputs = img_array.unsqueeze(0).to(opt.device)
 
         emotions_vector = []
-        inputs_normalized = torch.stack([transforms.Normalize(mean=opt.mean, std=opt.std)(pred) for pred in inputs])
-        default_emotion_vector = F.softmax(emotion_estimator(inputs_normalized) / opt.temperature, dim=1)
+        inputs_prepared = torch.stack([emotion_dataloader.prepare_img(pred) for pred in inputs])
+        default_emotion_vector = F.softmax(emotion_estimator(inputs_prepared) / opt.temperature, dim=1)
 
         st.sidebar.title('Please, enter emotion vector')
         for emotion, default_value in zip(opt.emotion_list, default_emotion_vector[0].detach().cpu().numpy()):

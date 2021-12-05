@@ -16,6 +16,7 @@ from demo_autoencoder import load_checkpoints
 from modules.keypoint_detector import KPDetector
 from stylegan_infer import Model
 from emotion_recognition_model import EmotionModel
+from train_er import EmotionDataloader
 
 import warnings
 
@@ -61,6 +62,7 @@ class Dataloader:
 
 def main():
     dataloader = Dataloader()
+    em_dataloader = EmotionDataloader()
 
     generator, kp_detector = load_checkpoints(
         config_path=opt.path_to_fomm_checkpoints / 'config/vox-adv-256.yaml',
@@ -74,7 +76,7 @@ def main():
     ).train().requires_grad_(True).to(opt.device)
 
     init_step = 0
-    load_path = opt.path_to_kp_weights_last3
+    load_path = opt.path_to_kp_weights_last1
     if load_path.exists():
         last_state = torch.load(load_path)
         kp_detector_trainable.load_state_dict(last_state['state_dict'])
@@ -86,7 +88,7 @@ def main():
     kp_detector_trainable = kp_detector_trainable.requires_grad_(True).train()
 
     emotion_estimator = EmotionModel()
-    emotion_estimator.load_state_dict(torch.load(opt.path_to_er_weights_last)['state_dict'])
+    emotion_estimator.load_state_dict(torch.load(opt.path_to_er_weights_last2)['state_dict'])
     emotion_estimator = emotion_estimator.eval().requires_grad_(False).to(opt.device)
 
     optimizer = Adam(kp_detector_trainable.parameters(), lr=opt.lr_kp)
@@ -94,25 +96,20 @@ def main():
         optimizer.zero_grad()
 
         inputs, target, target_emotions = dataloader.get_batch(opt.batch_size_kp)
-        target_normalized = torch.stack([transforms.Normalize(mean=opt.mean, std=opt.std)(pred) for pred in target])
+        target_prepared = torch.stack([em_dataloader.prepare_img(pred) for pred in target])
         with torch.no_grad():
             target_kp, target_heatmap = kp_detector(target)
-            target_emotions_pred = F.softmax(emotion_estimator(target_normalized) / opt.temperature, dim=1)
+            target_emotions_pred = F.softmax(emotion_estimator(target_prepared) / opt.temperature, dim=1)
         pred_kp, pred_heatmap = kp_detector_trainable(inputs, target_emotions_pred)
-        # pred_heatmap = pred_heatmap.view(opt.batch_size_kp, pred_heatmap.shape[1], -1)
-        # pred_kp, _ = kp_detector_trainable(inputs, target_emotions)
 
         source_kp, source_heatmap = kp_detector(inputs)  # x10 affine, x10 heatmaps
-        # source_heatmap = source_heatmap.view(opt.batch_size_kp, source_heatmap.shape[1], -1)
         out_pred = generator(inputs, kp_source=source_kp, kp_driving=pred_kp)['prediction']
 
-        out_pred_normalized = torch.stack([transforms.Normalize(mean=opt.mean, std=opt.std)(pred) for pred in out_pred])
-        out_pred_emotions = F.softmax(emotion_estimator(out_pred_normalized) / opt.temperature, dim=1)
-        # out_pred_emotions = emotion_estimator(out_pred_normalized)
+        out_pred_prepared = torch.stack([em_dataloader.prepare_img(pred) for pred in out_pred])
+        out_pred_emotions = F.softmax(emotion_estimator(out_pred_prepared) / opt.temperature, dim=1)
 
         losses = {
             'l1_kp': sum([F.l1_loss(pred_kp[k], target_kp[k]) for k in target_kp.keys()]),
-            # 'ce_loss': F.cross_entropy(out_pred_emotions, target_emotions),
             'l1_target': F.l1_loss(out_pred_emotions, target_emotions_pred),
             'js_div_target': F.kl_div(
                 pred_heatmap.sum(dim=1).view(opt.batch_size_kp, -1).add(1).log(),
