@@ -43,7 +43,8 @@ def load_fomm():
 def load_mtcnn():
     return MTCNN(
         image_size=256, margin=100, min_face_size=20,
-        thresholds=[0.6, 0.7, 0.7], factor=0.709, post_process=True,
+        thresholds=[0.8, 0.8, 0.8], factor=0.709, post_process=True,
+        keep_all=True,
         device=opt.device
     )
 
@@ -55,13 +56,7 @@ def load_emotion():
     return emotion_estimator.eval().requires_grad_(False).to(opt.device)
 
 
-if __name__ == '__main__':
-    emotion_dataloader = EmotionDataloader(is_eval=True)
-    generator, kp_detector, kp_detector_trainable = load_fomm()
-
-    mtcnn = load_mtcnn()
-    emotion_estimator = load_emotion()
-
+def get_emotion_vector():
     st.sidebar.title('Please, enter emotion vector')
     emotions_vector = []
     for emotion in opt.emotion_list:
@@ -72,29 +67,72 @@ if __name__ == '__main__':
                 step=0.01
             )
         )
-    emotions_vector = torch.tensor(emotions_vector, dtype=torch.float).unsqueeze(0).to(opt.device)
+    return torch.tensor(emotions_vector, dtype=torch.float).unsqueeze(0).to(opt.device)
+
+
+def generate_image(img_file_buffer):
+    image = Image.open(img_file_buffer)
+    img_original = np.array(image)
+
+    # Detect faces
+    batch_boxes, batch_probs, batch_points = mtcnn.detect(img_original, landmarks=True)
+    # Select faces
+    if not mtcnn.keep_all:
+        batch_boxes, batch_probs, batch_points = mtcnn.select_boxes(
+            batch_boxes, batch_probs, batch_points, img_original, method=mtcnn.selection_method
+        )
+    # Extract faces
+    img_cropped = mtcnn.extract(img_original, batch_boxes, None)
+
+    if img_cropped is None:
+        return img_original, None, None
+    else:
+        img_cropped = img_cropped.add(1).div(2)
+
+    if len(img_cropped.shape) == 3:
+        inputs = img_cropped.unsqueeze(0).to(opt.device)
+    else:
+        inputs = img_cropped.to(opt.device)
+
+    source_kp, _ = kp_detector(inputs)
+    pred_kp, _ = kp_detector_trainable(inputs, emotions_vector)
+    out_pred = generator(inputs, kp_source=source_kp, kp_driving=pred_kp)['prediction']
+
+    return img_original, img_cropped, out_pred, batch_boxes
+
+
+if __name__ == '__main__':
+    emotion_dataloader = EmotionDataloader(is_eval=True)
+    generator, kp_detector, kp_detector_trainable = load_fomm()
+
+    mtcnn = load_mtcnn()
+    emotion_estimator = load_emotion()
+
+    emotions_vector = get_emotion_vector()
 
     img_file_buffer = st.file_uploader('img_file_uploader', type=['jpeg', 'jpg'], accept_multiple_files=False)
     if img_file_buffer is not None:
-        image = Image.open(img_file_buffer)
-        img_array = mtcnn(np.array(image), return_prob=False).add(1).div(2)
+        img_original, img_cropped, out_pred, batch_boxes = generate_image(img_file_buffer)
 
-        inputs = img_array.unsqueeze(0).to(opt.device)
+        st.image(
+            img_original,
+            caption="Uploaded image",
+        )
 
-        inputs_prepared = torch.stack([emotion_dataloader.prepare_img(pred) for pred in inputs])
-        # default_emotion_vector = F.softmax(emotion_estimator(inputs_prepared) / opt.temperature, dim=1)
+        img_cropped = img_cropped.detach().permute(0, 2, 3, 1).cpu().numpy()
+        out_pred = out_pred.detach().permute(0, 2, 3, 1).cpu().numpy()
+        if img_cropped is not None:
+            for person_cropped, person_output in zip(img_cropped, out_pred):
+                with st.container():
+                    beta_columns = st.columns(2)
+                    beta_columns[0].image(
+                        person_cropped,
+                        caption="Cropped uploaded image", width=256,
+                    )
+                    beta_columns[1].image(
+                        person_output,
+                        caption="Cropped predicted image", width=256,
+                    )
+        else:
+            st.warning("Sorry, I can't find face on this image.")
 
-        source_kp, _ = kp_detector(inputs)
-        pred_kp, _ = kp_detector_trainable(inputs, emotions_vector)
-        out_pred = generator(inputs, kp_source=source_kp, kp_driving=pred_kp)['prediction']
-
-        with st.container():
-            beta_columns = st.columns(2)
-            beta_columns[0].image(
-                img_array.detach().permute(1, 2, 0).cpu().numpy(),
-                caption="Uploaded image", width=256,
-            )
-            beta_columns[1].image(
-                out_pred.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(),
-                caption="Predicted image", width=256,
-            )
