@@ -2,7 +2,8 @@ import streamlit as st
 import torch
 import warnings
 import numpy as np
-import torch.nn.functional as F
+import torchvision.transforms.functional as F
+import cv2
 
 from facenet_pytorch import MTCNN
 from PIL import Image
@@ -98,7 +99,17 @@ def generate_image(img_file_buffer):
     pred_kp, _ = kp_detector_trainable(inputs, emotions_vector)
     out_pred = generator(inputs, kp_source=source_kp, kp_driving=pred_kp)['prediction']
 
-    return img_original, img_cropped, out_pred, batch_boxes
+    result = []
+    for idx, (out_img, box) in enumerate(zip(out_pred, batch_boxes)):
+        new_w = int(box[3] - box[1])
+        new_h = int(box[2] - box[0])
+
+        # result.append(F.resize(out_img, size=[new_w, new_h]).detach().permute(1, 2, 0).cpu().numpy())
+        result.append(out_img.detach().permute(1, 2, 0).cpu().numpy())
+
+    img_cropped = img_cropped.detach().permute(0, 2, 3, 1).cpu().numpy()
+
+    return img_original, img_cropped, result, batch_boxes
 
 
 if __name__ == '__main__':
@@ -119,20 +130,38 @@ if __name__ == '__main__':
             caption="Uploaded image",
         )
 
-        img_cropped = img_cropped.detach().permute(0, 2, 3, 1).cpu().numpy()
-        out_pred = out_pred.detach().permute(0, 2, 3, 1).cpu().numpy()
+        # cp_or1 = img_original.copy()
+        # cp_or2 = img_original.copy()
+
+        rec_img = img_original.copy()
+
         if img_cropped is not None:
-            for person_cropped, person_output in zip(img_cropped, out_pred):
+            for person_cropped, person_output, box in zip(img_cropped, out_pred, batch_boxes):
                 with st.container():
                     beta_columns = st.columns(2)
                     beta_columns[0].image(
                         person_cropped,
-                        caption="Cropped uploaded image", width=256,
+                        caption="Cropped uploaded image",
                     )
                     beta_columns[1].image(
                         person_output,
-                        caption="Cropped predicted image", width=256,
+                        caption="Cropped predicted image",
                     )
+
+                    # Create an all white mask
+                    mask = 255 * np.ones(person_output.shape, 'uint8')
+                    center = (int(np.abs(box[2] + box[0]) // 2), int(np.abs(box[3] + box[1]) // 2))
+                    # The location of the center of the src in the dst
+                    width, height, channels = img_original.shape
+
+                    # rec_img = cv2.rectangle(rec_img, (int(box[0])-50, int(box[1])-50), (int(box[2])+50, int(box[3])+50), (255, 0, 0), 2)
+
+                    # cp_or1 = cv2.seamlessClone(person_output.copy(), img_original.copy(), mask, p=center, flags=cv2.NORMAL_CLONE)
+                    # cp_or2 = cv2.seamlessClone(person_output.copy(), img_original.copy(), mask, p=center, flags=cv2.MIXED_CLONE)
+
+                    # st.image(cp_or1)
+                    # st.image(cp_or2)
+            # st.image(rec_img)
         else:
             st.warning("Sorry, I can't find face on this image.")
 
