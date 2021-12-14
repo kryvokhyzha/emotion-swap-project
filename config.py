@@ -7,8 +7,10 @@ class Config:
     def __init__(self):
         self.path_to_project = Path('')
         self.path_to_pretrained_checkpoints = self.path_to_project / 'checkpoints'
-        self.path_to_stylegan_checkpoints = self.path_to_pretrained_checkpoints / 'stylegan'
-        self.path_to_fomm_checkpoints = self.path_to_pretrained_checkpoints / 'fomm'
+        self.path_to_stylegan_checkpoints = self.path_to_project / 'stylegan_clip' / 'checkpoints' / 'stylegan'
+        self.path_to_fomm_checkpoints = self.path_to_project / 'fomm' / 'checkpoints'
+
+        self.path_to_fomm_configs = self.path_to_project / 'fomm' / 'config'
 
         self.path_to_kp_checkpoints2 = self.path_to_pretrained_checkpoints / 'kp-detector-with-er-heatmap-v1-snp'
         self.path_to_kp_weights2 = self.path_to_kp_checkpoints2 / 'weights'
@@ -54,6 +56,7 @@ class Config:
         self.temperature = 2
 
         self.seed = 42
+        self.enable_log_flag = False
 
 
 opt = Config()

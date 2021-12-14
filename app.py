@@ -7,11 +7,11 @@ import torchvision.transforms.functional as F
 from facenet_pytorch import MTCNN
 from PIL import Image
 
-from modules.keypoint_detector import KPDetector
+from fomm.modules.keypoint_detector import KPDetector
 from config import opt
-from demo_autoencoder import load_checkpoints
+from fomm.fomm_infer import load_checkpoints
 from emotion_recognition_model import EmotionModel
-from train_er import EmotionDataloader
+from train_emotion_recognition import EmotionDataloader
 
 warnings.filterwarnings("ignore")
 
@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 @st.cache(allow_output_mutation=True)
 def load_fomm():
     generator, kp_detector = load_checkpoints(
-        config_path=opt.path_to_fomm_checkpoints / 'config/vox-adv-256.yaml',
+        config_path=opt.path_to_fomm_configs / 'vox-adv-256.yaml',
         checkpoint_path=opt.path_to_fomm_checkpoints / 'vox-adv-cpk.pth.tar',
         device=opt.device,
     )
@@ -119,7 +119,6 @@ def generate_image(img_file_buffer, emotions_vector):
         new_h = int(box[2] - box[0])
 
         result.append(F.resize(out_img, size=[new_w, new_h]).detach().permute(1, 2, 0).cpu().numpy())
-        # result.append(out_img.detach().permute(1, 2, 0).cpu().numpy())
 
     img_cropped = img_cropped.detach().permute(0, 2, 3, 1).cpu().numpy()
 
