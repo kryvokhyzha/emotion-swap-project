@@ -3,7 +3,6 @@ import torch
 import warnings
 import numpy as np
 import torchvision.transforms.functional as F
-import cv2
 
 from facenet_pytorch import MTCNN
 from PIL import Image
@@ -53,7 +52,7 @@ def load_mtcnn():
 @st.cache(allow_output_mutation=True)
 def load_emotion():
     emotion_estimator = EmotionModel()
-    emotion_estimator.load_state_dict(torch.load(opt.path_to_er_weights_last2)['state_dict'])
+    emotion_estimator.load_state_dict(torch.load(opt.path_to_er_weights_last3)['state_dict'])
     return emotion_estimator.eval().requires_grad_(False).to(opt.device)
 
 
@@ -65,13 +64,13 @@ def get_emotion_vector():
             st.sidebar.slider(
                 emotion, min_value=0.0, max_value=1.0,
                 value=0.0,
-                step=0.01
+                step=0.01,
             )
         )
     return torch.tensor(emotions_vector, dtype=torch.float).unsqueeze(0).to(opt.device)
 
 
-def generate_image(img_file_buffer):
+def generate_image(img_file_buffer, emotions_vector):
     image = Image.open(img_file_buffer)
     img_original = np.array(image)
 
@@ -100,20 +99,35 @@ def generate_image(img_file_buffer):
     out_pred = generator(inputs, kp_source=source_kp, kp_driving=pred_kp)['prediction']
 
     result = []
-    for idx, (out_img, box) in enumerate(zip(out_pred, batch_boxes)):
+    boxes = []
+    for i in range(len(batch_boxes)):
+        margin = [
+            mtcnn.margin * (batch_boxes[i][2] - batch_boxes[i][0]) / (mtcnn.image_size - mtcnn.margin),
+            mtcnn.margin * (batch_boxes[i][3] - batch_boxes[i][1]) / (mtcnn.image_size - mtcnn.margin),
+        ]
+
+        box = [
+            int(max(batch_boxes[i][0] - margin[0] / 2, 0)),
+            int(max(batch_boxes[i][1] - margin[1] / 2, 0)),
+            int(min(batch_boxes[i][2] + margin[0] / 2, img_original.shape[1])),
+            int(min(batch_boxes[i][3] + margin[1] / 2, img_original.shape[0])),
+        ]
+        boxes.append(box)
+
+    for idx, (out_img, box) in enumerate(zip(out_pred, boxes)):
         new_w = int(box[3] - box[1])
         new_h = int(box[2] - box[0])
 
-        # result.append(F.resize(out_img, size=[new_w, new_h]).detach().permute(1, 2, 0).cpu().numpy())
-        result.append(out_img.detach().permute(1, 2, 0).cpu().numpy())
+        result.append(F.resize(out_img, size=[new_w, new_h]).detach().permute(1, 2, 0).cpu().numpy())
+        # result.append(out_img.detach().permute(1, 2, 0).cpu().numpy())
 
     img_cropped = img_cropped.detach().permute(0, 2, 3, 1).cpu().numpy()
 
-    return img_original, img_cropped, result, batch_boxes
+    return img_original, img_cropped, result, boxes
 
 
 if __name__ == '__main__':
-    emotion_dataloader = EmotionDataloader(is_eval=True)
+    emotion_dataloader = EmotionDataloader(is_eval=True, use_mtcnn=False)
     generator, kp_detector, kp_detector_trainable = load_fomm()
 
     mtcnn = load_mtcnn()
@@ -123,45 +137,34 @@ if __name__ == '__main__':
 
     img_file_buffer = st.file_uploader('img_file_uploader', type=['jpeg', 'jpg'], accept_multiple_files=False)
     if img_file_buffer is not None:
-        img_original, img_cropped, out_pred, batch_boxes = generate_image(img_file_buffer)
+        img_original, img_cropped, out_pred, boxes = generate_image(img_file_buffer, emotions_vector)
 
         st.image(
             img_original,
             caption="Uploaded image",
+            width=512,
         )
 
-        # cp_or1 = img_original.copy()
-        # cp_or2 = img_original.copy()
-
-        rec_img = img_original.copy()
-
+        result_img = img_original.copy()
         if img_cropped is not None:
-            for person_cropped, person_output, box in zip(img_cropped, out_pred, batch_boxes):
+            for idx, (person_cropped, person_output, box) in enumerate(zip(img_cropped, out_pred, boxes)):
+                result_img[int(box[1]):int(box[1]) + person_output.shape[0], int(box[0]):int(box[0]) + person_output.shape[1]] = (person_output*255).astype(int).clip(0, 255)
                 with st.container():
                     beta_columns = st.columns(2)
                     beta_columns[0].image(
                         person_cropped,
-                        caption="Cropped uploaded image",
+                        caption=f"Cropped person {idx+1} - original",
                     )
                     beta_columns[1].image(
                         person_output,
-                        caption="Cropped predicted image",
+                        caption=f"Cropped person {idx+1} - predicted",
                     )
 
-                    # Create an all white mask
-                    mask = 255 * np.ones(person_output.shape, 'uint8')
-                    center = (int(np.abs(box[2] + box[0]) // 2), int(np.abs(box[3] + box[1]) // 2))
-                    # The location of the center of the src in the dst
-                    width, height, channels = img_original.shape
-
-                    # rec_img = cv2.rectangle(rec_img, (int(box[0])-50, int(box[1])-50), (int(box[2])+50, int(box[3])+50), (255, 0, 0), 2)
-
-                    # cp_or1 = cv2.seamlessClone(person_output.copy(), img_original.copy(), mask, p=center, flags=cv2.NORMAL_CLONE)
-                    # cp_or2 = cv2.seamlessClone(person_output.copy(), img_original.copy(), mask, p=center, flags=cv2.MIXED_CLONE)
-
-                    # st.image(cp_or1)
-                    # st.image(cp_or2)
-            # st.image(rec_img)
+            st.image(
+                result_img,
+                caption="Result of emotion swap",
+                width=512,
+            )
         else:
             st.warning("Sorry, I can't find face on this image.")
 

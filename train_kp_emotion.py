@@ -8,7 +8,8 @@ import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 from torch.optim import Adam
 from torchvision.utils import make_grid
-from torchvision import transforms
+from torchvision import transforms as T
+from facenet_pytorch import MTCNN
 from tqdm import tqdm
 
 from config import opt
@@ -37,32 +38,66 @@ def js_divergence(p, q):
 
 
 class Dataloader:
-    def __init__(self):
+    def __init__(self, is_eval=False, use_mtcnn=True,):
+        self.is_eval = is_eval
+        self.use_mtcnn = use_mtcnn
+        self.mtcnn = MTCNN(
+            image_size=256, margin=0, min_face_size=20,
+            thresholds=[0.6, 0.7, 0.7], factor=0.709, post_process=True,
+            device=opt.device
+        )
         self.model = Model(path_to_checkpoint=join(opt.path_to_stylegan_checkpoints, 'neutral'), device=opt.device)
+
+    def prepare_img(self, data, degrees=(0, 0), p_rand=0.5):
+        data = data.add(1).div(2).squeeze()
+        if not self.is_eval:
+            kp_transformations_train = T.Compose([
+                T.RandomRotation(degrees=degrees) if p_rand < 0.25 else T.RandomRotation(degrees=(0, 0)),
+            ])
+            data = kp_transformations_train(data).to(opt.device)
+
+        if self.use_mtcnn:
+            data = self.mtcnn(
+                data.permute(1, 2, 0).mul(255).detach().cpu().numpy(),
+                return_prob=False,
+            )
+            if data is None:
+                return None
+            data = data.add(1).div(2).squeeze()
+        return data.to(opt.device)  # self.kp_transformations(data).to(opt.device)
 
     def get_batch(self, batch_size):
         inputs_b, targets_b, emotions_b = [], [], []
         for b in range(batch_size):
-            noise = torch.randn(1, 512, device=opt.device)
-            emo = random.choice(opt.emotion_list)
-            self.model.load_checkpoint(join(opt.path_to_stylegan_checkpoints, emo))
-            data = self.model.inference(1, noise)[1:]
-            inputs_b.append(data[0])
+            data_0 = None
+            data_1 = None
+            emo = None
+            while data_0 is None or data_1 is None:
+                noise = torch.randn(1, 512, device=opt.device)
+                emo = random.choice(opt.emotion_list)
+                self.model.load_checkpoint(join(opt.path_to_stylegan_checkpoints, emo))
+                data = self.model.inference(1, noise)[1:]
+
+                degree = np.random.randint(low=-45, high=45)
+                p_rand = float(np.random.rand())
+                data_0 = self.prepare_img(data[0], degrees=(degree, degree), p_rand=p_rand)
+                data_1 = self.prepare_img(data[1], degrees=(degree, degree), p_rand=p_rand)
+            inputs_b.append(data_0.unsqueeze(0))
             target_emotion = torch.zeros([1, 7]).to(opt.device)
 
-            if np.random.rand() < 0.1:
-                targets_b.append(data[0])
+            if np.random.rand() < 0.2:
+                targets_b.append(data_0.unsqueeze(0))
                 emotions_b.append(target_emotion)
             else:
-                targets_b.append(data[1])
+                targets_b.append(data_1.unsqueeze(0))
                 target_emotion[:, opt.emotion_list.index(emo)] = 1
                 emotions_b.append(target_emotion)
-        return torch.cat(inputs_b).add(1).div(2), torch.cat(targets_b).add(1).div(2), torch.cat(emotions_b)
+        return torch.cat(inputs_b), torch.cat(targets_b), torch.cat(emotions_b)
 
 
 def main():
-    dataloader = Dataloader()
-    em_dataloader = EmotionDataloader()
+    dataloader = Dataloader(is_eval=False, use_mtcnn=False)
+    em_dataloader = EmotionDataloader(is_eval=True, use_mtcnn=False)
 
     generator, kp_detector = load_checkpoints(
         config_path=opt.path_to_fomm_checkpoints / 'config/vox-adv-256.yaml',
@@ -76,7 +111,7 @@ def main():
     ).train().requires_grad_(True).to(opt.device)
 
     init_step = 0
-    load_path = opt.path_to_kp_weights_last1
+    load_path = opt.path_to_kp_weights_last3
     if load_path.exists():
         last_state = torch.load(load_path)
         kp_detector_trainable.load_state_dict(last_state['state_dict'])
@@ -84,11 +119,12 @@ def main():
         print(f'weight were loaded {load_path}')
     else:
         kp_detector_trainable.load_state_dict(kp_detector.state_dict(), strict=False)
+        print(f'weight were loaded from original KP detector')
 
     kp_detector_trainable = kp_detector_trainable.requires_grad_(True).train()
 
     emotion_estimator = EmotionModel()
-    emotion_estimator.load_state_dict(torch.load(opt.path_to_er_weights_last2)['state_dict'])
+    emotion_estimator.load_state_dict(torch.load(opt.path_to_er_weights_last3)['state_dict'])
     emotion_estimator = emotion_estimator.eval().requires_grad_(False).to(opt.device)
 
     optimizer = Adam(kp_detector_trainable.parameters(), lr=opt.lr_kp)
@@ -100,6 +136,9 @@ def main():
         with torch.no_grad():
             target_kp, target_heatmap = kp_detector(target)
             target_emotions_pred = F.softmax(emotion_estimator(target_prepared) / opt.temperature, dim=1)
+        mask = target_emotions.sum(dim=1)
+        target_emotions_pred = mask.unsqueeze(0).T * target_emotions_pred
+        mask = mask > 0
         pred_kp, pred_heatmap = kp_detector_trainable(inputs, target_emotions_pred)
 
         source_kp, source_heatmap = kp_detector(inputs)  # x10 affine, x10 heatmaps
@@ -110,7 +149,7 @@ def main():
 
         losses = {
             'l1_kp': sum([F.l1_loss(pred_kp[k], target_kp[k]) for k in target_kp.keys()]),
-            'l1_target': F.l1_loss(out_pred_emotions, target_emotions_pred),
+            'l1_target': F.l1_loss(out_pred_emotions[mask], target_emotions_pred[mask]),
             'js_div_target': F.kl_div(
                 pred_heatmap.sum(dim=1).view(opt.batch_size_kp, -1).add(1).log(),
                 source_heatmap.sum(dim=1).view(opt.batch_size_kp, -1).add(1),
