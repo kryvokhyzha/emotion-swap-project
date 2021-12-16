@@ -6,6 +6,9 @@ from pathlib import Path
 class Config:
     def __init__(self):
         self.path_to_project = Path('')
+
+        self.path_to_output = self.path_to_project / 'output'
+
         self.path_to_pretrained_checkpoints = self.path_to_project / 'checkpoints'
         self.path_to_stylegan_checkpoints = self.path_to_project / 'stylegan_clip' / 'checkpoints' / 'stylegan'
         self.path_to_fomm_checkpoints = self.path_to_project / 'fomm' / 'checkpoints'
@@ -60,9 +63,7 @@ class Config:
 
 
 opt = Config()
-# os.makedirs(os.path.join(opt.path_to_kp_weights1, 'weights'), exist_ok=True)
-# os.makedirs(os.path.join(opt.path_to_kp_weights2, 'weights'), exist_ok=True)
-os.makedirs(os.path.join(opt.path_to_kp_weights3, 'weights'), exist_ok=True)
-# os.makedirs(os.path.join(opt.path_to_er_weights, 'weights'), exist_ok=True)
-# os.makedirs(os.path.join(opt.path_to_er_weights2, 'weights'), exist_ok=True)
-os.makedirs(os.path.join(opt.path_to_er_weights3, 'weights'), exist_ok=True)
+
+opt.path_to_kp_weights3.mkdir(exist_ok=True)
+opt.path_to_er_weights3.mkdir(exist_ok=True)
+opt.path_to_output.mkdir(exist_ok=True)

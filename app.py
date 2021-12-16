@@ -2,10 +2,16 @@ import streamlit as st
 import torch
 import warnings
 import numpy as np
+import cv2
 import torchvision.transforms.functional as F
+import tempfile
+import ffmpeg
+import shutil
 
 from facenet_pytorch import MTCNN
 from PIL import Image
+from decord import VideoReader
+from decord import cpu, gpu
 
 from fomm.modules.keypoint_detector import KPDetector
 from config import opt
@@ -70,10 +76,7 @@ def get_emotion_vector():
     return torch.tensor(emotions_vector, dtype=torch.float).unsqueeze(0).to(opt.device)
 
 
-def generate_image(img_file_buffer, emotions_vector):
-    image = Image.open(img_file_buffer)
-    img_original = np.array(image)
-
+def generate_image(img_original, emotions_vector):
     # Detect faces
     batch_boxes, batch_probs, batch_points = mtcnn.detect(img_original, landmarks=True)
     # Select faces
@@ -122,7 +125,7 @@ def generate_image(img_file_buffer, emotions_vector):
 
     img_cropped = img_cropped.detach().permute(0, 2, 3, 1).cpu().numpy()
 
-    return img_original, img_cropped, result, boxes
+    return img_cropped, result, boxes
 
 
 if __name__ == '__main__':
@@ -134,9 +137,13 @@ if __name__ == '__main__':
 
     emotions_vector = get_emotion_vector()
 
-    img_file_buffer = st.file_uploader('img_file_uploader', type=['jpeg', 'jpg'], accept_multiple_files=False)
-    if img_file_buffer is not None:
-        img_original, img_cropped, out_pred, boxes = generate_image(img_file_buffer, emotions_vector)
+    file_buffer = st.file_uploader('img_file_uploader', type=['jpeg', 'jpg', 'mp4'], accept_multiple_files=False)
+
+    if file_buffer is not None and file_buffer.type.startswith('image/'):
+        image = Image.open(file_buffer)
+        img_original = np.array(image)
+
+        img_cropped, out_pred, boxes = generate_image(img_original, emotions_vector)
 
         st.image(
             img_original,
@@ -166,4 +173,36 @@ if __name__ == '__main__':
             )
         else:
             st.warning("Sorry, I can't find face on this image.")
+    elif file_buffer is not None and file_buffer.type.startswith('video/'):
+        st.video(file_buffer)
+        vr = VideoReader(file_buffer, ctx=cpu(0))
 
+        fps = 25
+        size = vr[0].shape
+        output_filename = next(tempfile._get_candidate_names())
+        path_to_frames = opt.path_to_output / (output_filename + '_temp')
+        path_to_frames.mkdir(exist_ok=True)
+
+        path_to_result = str(opt.path_to_output / output_filename) + '.mp4'
+
+        with st.spinner('Please, wait...'):
+            for i in range(len(vr)):
+                result_img = vr[i].asnumpy().copy()
+                img_cropped, out_pred, boxes = generate_image(result_img, emotions_vector)
+                if img_cropped is None:
+                    continue
+                for idx, (person_cropped, person_output, box) in enumerate(zip(img_cropped, out_pred, boxes)):
+                    result_img[int(box[1]):int(box[1]) + person_output.shape[0], int(box[0]):int(box[0]) + person_output.shape[1]] = (person_output*255).astype(int).clip(0, 255)
+                cv2.imwrite(str(path_to_frames / f"img_{i}.png"), cv2.cvtColor(result_img, cv2.COLOR_RGB2BGR))
+            st.success('Done!')
+
+        (
+            ffmpeg
+                .input(str(path_to_frames)+'/*.png', pattern_type='glob', framerate=30)
+                .output(path_to_result)
+                .run()
+        )
+
+        shutil.rmtree(path_to_frames)
+
+        st.video(path_to_result)

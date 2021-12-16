@@ -157,3 +157,7 @@ aischool-8
 *.ai-school-8
 *.tar
 *.pth
+
+# media
+*.mp4
+*.png
