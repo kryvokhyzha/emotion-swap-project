@@ -2,16 +2,16 @@ import streamlit as st
 import torch
 import warnings
 import numpy as np
-import cv2
 import torchvision.transforms.functional as F
 import tempfile
-import ffmpeg
-import shutil
+import imageio
+import os
 
 from facenet_pytorch import MTCNN
 from PIL import Image
 from decord import VideoReader
 from decord import cpu, gpu
+from skimage import img_as_ubyte
 
 from fomm.modules.keypoint_detector import KPDetector
 from config import opt
@@ -177,14 +177,10 @@ if __name__ == '__main__':
         st.video(file_buffer)
         vr = VideoReader(file_buffer, ctx=cpu(0))
 
-        fps = 25
-        size = vr[0].shape
         output_filename = next(tempfile._get_candidate_names())
-        path_to_frames = opt.path_to_output / (output_filename + '_temp')
-        path_to_frames.mkdir(exist_ok=True)
-
         path_to_result = str(opt.path_to_output / output_filename) + '.mp4'
 
+        predictions = []
         with st.spinner('Please, wait...'):
             for i in range(len(vr)):
                 result_img = vr[i].asnumpy().copy()
@@ -193,16 +189,9 @@ if __name__ == '__main__':
                     continue
                 for idx, (person_cropped, person_output, box) in enumerate(zip(img_cropped, out_pred, boxes)):
                     result_img[int(box[1]):int(box[1]) + person_output.shape[0], int(box[0]):int(box[0]) + person_output.shape[1]] = (person_output*255).astype(int).clip(0, 255)
-                cv2.imwrite(str(path_to_frames / f"img_{i}.png"), cv2.cvtColor(result_img, cv2.COLOR_RGB2BGR))
+                predictions.append(img_as_ubyte(result_img))
             st.success('Done!')
 
-        (
-            ffmpeg
-                .input(str(path_to_frames)+'/*.png', pattern_type='glob', framerate=30)
-                .output(path_to_result)
-                .run()
-        )
-
-        shutil.rmtree(path_to_frames)
-
+        imageio.mimsave(path_to_result, predictions, fps=vr.get_avg_fps())
         st.video(path_to_result)
+        os.remove(path_to_result)
