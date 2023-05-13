@@ -3,21 +3,15 @@ import torch
 import warnings
 import numpy as np
 import torchvision.transforms.functional as F
-import tempfile
-import imageio
-import os
 
 from facenet_pytorch import MTCNN
 from PIL import Image
-from decord import VideoReader
-from decord import cpu
-from skimage import img_as_ubyte
 
-from src.fomm.modules.keypoint_detector import KPDetector
+from fomm.modules.keypoint_detector import KPDetector
 from config import opt
-from src.fomm import load_checkpoints
-from src.emotion_recognition.model import EmotionModel
-from train_emotion_recognition import EmotionDataloader
+from fomm.fomm_infer import load_checkpoints
+from emotion_recognition.model import EmotionRecognitionModel
+from emotion_recognition.dataloader import EmotionRecognitionDataloader
 
 warnings.filterwarnings("ignore")
 
@@ -57,7 +51,7 @@ def load_mtcnn():
 
 @st.cache(allow_output_mutation=True)
 def load_emotion():
-    emotion_estimator = EmotionModel()
+    emotion_estimator = EmotionRecognitionModel()
     emotion_estimator.load_state_dict(torch.load(opt.path_to_er_weights_last3)['state_dict'])
     return emotion_estimator.eval().requires_grad_(False).to(opt.device)
 
@@ -129,7 +123,7 @@ def generate_image(img_original, emotions_vector):
 
 
 if __name__ == '__main__':
-    emotion_dataloader = EmotionDataloader(is_eval=True, use_mtcnn=False)
+    emotion_dataloader = EmotionRecognitionDataloader(is_eval=True, use_mtcnn=False)
     generator, kp_detector, kp_detector_trainable = load_fomm()
 
     mtcnn = load_mtcnn()
@@ -137,7 +131,11 @@ if __name__ == '__main__':
 
     emotions_vector = get_emotion_vector()
 
-    file_buffer = st.file_uploader('img_file_uploader', type=['jpeg', 'jpg', 'mp4'], accept_multiple_files=False)
+    file_buffer = st.file_uploader(
+        'img_file_uploader',
+        type=['jpeg', 'jpg',],  #'mp4'],
+        accept_multiple_files=False,
+    )
 
     if file_buffer is not None and file_buffer.type.startswith('image/'):
         image = Image.open(file_buffer)
@@ -173,25 +171,25 @@ if __name__ == '__main__':
             )
         else:
             st.warning("Sorry, I can't find face on this image.")
-    elif file_buffer is not None and file_buffer.type.startswith('video/'):
-        st.video(file_buffer)
-        vr = VideoReader(file_buffer, ctx=cpu(0))
-
-        output_filename = next(tempfile._get_candidate_names())
-        path_to_result = str(opt.path_to_output / output_filename) + '.mp4'
-
-        predictions = []
-        with st.spinner('Please, wait...'):
-            for i in range(len(vr)):
-                result_img = vr[i].asnumpy().copy()
-                img_cropped, out_pred, boxes = generate_image(result_img, emotions_vector)
-                if img_cropped is None:
-                    continue
-                for idx, (person_cropped, person_output, box) in enumerate(zip(img_cropped, out_pred, boxes)):
-                    result_img[int(box[1]):int(box[1]) + person_output.shape[0], int(box[0]):int(box[0]) + person_output.shape[1]] = (person_output*255).astype(int).clip(0, 255)
-                predictions.append(img_as_ubyte(result_img))
-            st.success('Done!')
-
-        imageio.mimsave(path_to_result, predictions, fps=vr.get_avg_fps())
-        st.video(path_to_result)
-        os.remove(path_to_result)
+    # elif file_buffer is not None and file_buffer.type.startswith('video/'):
+    #     st.video(file_buffer)
+    #     vr = VideoReader(file_buffer, ctx=cpu(0))
+    #
+    #     output_filename = next(tempfile._get_candidate_names())
+    #     path_to_result = str(opt.path_to_output / output_filename) + '.mp4'
+    #
+    #     predictions = []
+    #     with st.spinner('Please, wait...'):
+    #         for i in range(len(vr)):
+    #             result_img = vr[i].asnumpy().copy()
+    #             img_cropped, out_pred, boxes = generate_image(result_img, emotions_vector)
+    #             if img_cropped is None:
+    #                 continue
+    #             for idx, (person_cropped, person_output, box) in enumerate(zip(img_cropped, out_pred, boxes)):
+    #                 result_img[int(box[1]):int(box[1]) + person_output.shape[0], int(box[0]):int(box[0]) + person_output.shape[1]] = (person_output*255).astype(int).clip(0, 255)
+    #             predictions.append(img_as_ubyte(result_img))
+    #         st.success('Done!')
+    #
+    #     imageio.mimsave(path_to_result, predictions, fps=vr.get_avg_fps())
+    #     st.video(path_to_result)
+    #     os.remove(path_to_result)

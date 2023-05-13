@@ -3,11 +3,13 @@ from torch import nn
 from config import opt
 
 
-class EmotionModel(nn.Module):
-    def __init__(self, pretrained=True):
-        super(EmotionModel, self).__init__()
-        self.model = resnet18(pretrained=pretrained)
+class EmotionRecognitionModel(nn.Module):
 
+    def __init__(self, pretrained=True):
+        super(EmotionRecognitionModel, self).__init__()
+
+        self.model = resnet18(pretrained=pretrained)
+        self.model.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
         self.model.fc = nn.Linear(self.model.fc.in_features, len(opt.emotion_list), bias=True)
 
     def forward(self, x):

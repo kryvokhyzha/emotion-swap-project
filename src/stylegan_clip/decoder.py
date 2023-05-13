@@ -3,11 +3,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import pickle
-import src.stylegan_clip.training.networks
-import src.stylegan_clip.dnnlib.util
+import stylegan_clip.training.networks
+import stylegan_clip.dnnlib.util
 
-from src.stylegan_clip.torch_utils import legacy, misc
-from src.stylegan_clip.training.networks import Generator
+from stylegan_clip.torch_utils import legacy, misc
+from stylegan_clip.training.networks import Generator
+from config import opt
 
 
 class Decoder(nn.Module):
@@ -33,11 +34,11 @@ class Decoder(nn.Module):
             'pretrained/transfer-learning-source-nets/' \
             'ffhq-res256-mirror-paper256-noaug.pkl'
 
-        with src.stylegan_clip.dnnlib.util.open_url(resume_pkl) as f:
+        with stylegan_clip.dnnlib.util.open_url(resume_pkl) as f:
             resume_data = legacy.load_network_pkl(f)
             misc.copy_params_and_buffers(resume_data['G_ema'], self.stylegan, require_all=True)
 
-        with open('stylegan_clip/checkpoints/segmentation.pkl', 'rb') as f:
+        with open(opt.path_to_stylegan_segmentation, 'rb') as f:
             model = pickle.load(f)
 
         latent_average = self.stylegan.mapping.w_avg.clone()

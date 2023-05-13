@@ -20,7 +20,7 @@ import inspect
 import copy
 import uuid
 import types
-from src.stylegan_clip import dnnlib
+from stylegan_clip import dnnlib
 
 #----------------------------------------------------------------------------
 

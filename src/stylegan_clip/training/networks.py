@@ -8,11 +8,11 @@
 
 import numpy as np
 import torch
-from src.stylegan_clip.torch_utils import persistence
-from src.stylegan_clip.torch_utils import misc
-from src.stylegan_clip.torch_utils.ops import fma
-from src.stylegan_clip.torch_utils.ops import conv2d_resample, upfirdn2d
-from src.stylegan_clip.torch_utils.ops import bias_act
+from stylegan_clip.torch_utils import persistence
+from stylegan_clip.torch_utils import misc
+from stylegan_clip.torch_utils.ops import fma
+from stylegan_clip.torch_utils.ops import conv2d_resample, upfirdn2d
+from stylegan_clip.torch_utils.ops import bias_act
 
 
 #----------------------------------------------------------------------------

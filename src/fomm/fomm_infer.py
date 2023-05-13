@@ -8,10 +8,10 @@ from skimage.transform import resize
 
 from imageio import imsave
 import torch
-from src.fomm.sync_batchnorm import DataParallelWithCallback
+from fomm.sync_batchnorm import DataParallelWithCallback
 
-from src.fomm.modules.generator import OcclusionAwareGenerator
-from src.fomm.modules.keypoint_detector import KPDetector
+from fomm.modules.generator import OcclusionAwareGenerator
+from fomm.modules.keypoint_detector import KPDetector
 
 matplotlib.use('Agg')
 
@@ -21,7 +21,7 @@ if sys.version_info[0] < 3:
 
 def load_checkpoints(config_path, checkpoint_path, device):
     with open(config_path) as f:
-        config = yaml.load(f)
+        config = yaml.full_load(f)
 
     generator = OcclusionAwareGenerator(**config['model_params']['generator_params'],
                                         **config['model_params']['common_params']).to(device)
@@ -29,7 +29,7 @@ def load_checkpoints(config_path, checkpoint_path, device):
     kp_detector = KPDetector(**config['model_params']['kp_detector_params'],
                              **config['model_params']['common_params']).to(device)
 
-    checkpoint = torch.load(checkpoint_path)
+    checkpoint = torch.load(checkpoint_path, map_location=device)
 
     generator.load_state_dict(checkpoint['generator'])
     kp_detector.load_state_dict(checkpoint['kp_detector'])

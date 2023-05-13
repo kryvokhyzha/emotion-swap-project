@@ -1,6 +1,6 @@
 from torch import nn
 import torch.nn.functional as F
-from src.fomm.modules.util import kp2gaussian
+from fomm.modules.util import kp2gaussian
 import torch
 
 

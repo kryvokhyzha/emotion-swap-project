@@ -3,7 +3,8 @@ from torch import nn
 import torch.nn.functional as F
 import torch
 
-from src.fomm.sync_batchnorm import SynchronizedBatchNorm2d as BatchNorm2d
+from fomm.sync_batchnorm import SynchronizedBatchNorm2d as BatchNorm2d
+from fomm.modules.adain import AdaIN
 
 
 def kp2gaussian(kp, spatial_size, kp_variance):
@@ -152,21 +153,6 @@ class Encoder(nn.Module):
         for down_block in self.down_blocks:
             outs.append(down_block(outs[-1]))
         return outs
-
-
-class AdaIN(nn.Module):
-    def __init__(self, channels, latent_size):
-        super().__init__()
-        self.channels = channels
-        self.linear = nn.Sequential(nn.Linear(latent_size, (channels + latent_size) // 2),
-                                    nn.ELU(),
-                                    nn.Linear((channels + latent_size) // 2, channels * 2))
-
-    def forward(self, x, dlatent):
-        x = nn.InstanceNorm2d(self.channels)(x)
-        style = self.linear(dlatent)
-        style = style.view([-1, 2, x.size()[1]] + [1] * (len(x.size()) - 2))
-        return x * (style[:, 0] + 1) + style[:, 1]
 
 
 class Decoder(nn.Module):

@@ -1,5 +1,5 @@
-from src.stylegan_clip.mapper import Mapper
-from src.stylegan_clip.decoder import Decoder
+from stylegan_clip.mapper import Mapper
+from stylegan_clip.decoder import Decoder
 from kornia.filters import GaussianBlur2d
 import os
 import torch
@@ -23,7 +23,7 @@ class Model:
 
         self.blur = GaussianBlur2d(kernel_size=(11, 11), sigma=(5, 5))
 
-        self.load_checkpoint(path_to_checkpoint)
+        self.load_checkpoint(path_to_checkpoint, device)
 
     def inference(self, batch_size, noise=None):
         with torch.no_grad():
@@ -36,9 +36,9 @@ class Model:
             result, _, _ = self.decoder(latents + deltas)
         return noise, identity, result.clamp(-1.0, 1.0).float()
 
-    def load_checkpoint(self, path_to_checkpoint):
-        self.decoder.load_state_dict(torch.load(os.path.join(path_to_checkpoint, 'decoder.pth'), map_location='cpu'))
-        self.mapper.load_state_dict(torch.load(os.path.join(path_to_checkpoint, 'mapper.pth'), map_location='cpu'))
+    def load_checkpoint(self, path_to_checkpoint, device):
+        self.decoder.load_state_dict(torch.load(os.path.join(path_to_checkpoint, 'decoder.pth'), map_location=device))
+        self.mapper.load_state_dict(torch.load(os.path.join(path_to_checkpoint, 'mapper.pth'), map_location=device))
 
 
 def main(path_to_checkpoint, batch_size, device='cuda:0'):
@@ -56,8 +56,10 @@ def main(path_to_checkpoint, batch_size, device='cuda:0'):
 
 
 if __name__ == '__main__':
-    main(path_to_checkpoint='checkpoints/stylegan/sad',
-         batch_size=2)
+    main(
+        path_to_checkpoint='checkpoints/stylegan/sad',
+        batch_size=2,
+    )
 
 
     

@@ -12,9 +12,9 @@ import re
 import copy
 import numpy as np
 import torch
-from src.stylegan_clip.dnnlib.util import open_url
-from src.stylegan_clip import dnnlib
-from src.stylegan_clip.torch_utils import misc
+from stylegan_clip.dnnlib.util import open_url
+from stylegan_clip import dnnlib
+from stylegan_clip.torch_utils import misc
 
 
 #----------------------------------------------------------------------------
@@ -169,7 +169,7 @@ def convert_tf_generator(tf_G):
     #for name, value in tf_params.items(): print(f'{name:<50s}{list(value.shape)}')
 
     # Convert params.
-    from src.stylegan_clip.training import networks
+    from stylegan_clip.training import networks
     G = networks.Generator(**kwargs).eval().requires_grad_(False)
     # pylint: disable=unnecessary-lambda
     _populate_module_params(G,
@@ -266,7 +266,7 @@ def convert_tf_discriminator(tf_D):
     #for name, value in tf_params.items(): print(f'{name:<50s}{list(value.shape)}')
 
     # Convert params.
-    from src.stylegan_clip.training import networks
+    from stylegan_clip.training import networks
     D = networks.Discriminator(**kwargs).eval().requires_grad_(False)
     # pylint: disable=unnecessary-lambda
     _populate_module_params(D,
