@@ -146,6 +146,9 @@ data/sdg_classification/*.zip
 # vscode
 .vscode
 
+# logs
+*.local
+
 # temp
 temp/
 
