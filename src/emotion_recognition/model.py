@@ -9,7 +9,11 @@ class EmotionRecognitionModel(nn.Module):
         super(EmotionRecognitionModel, self).__init__()
 
         self.model = resnet18(pretrained=pretrained)
-        self.model.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        self.model.conv1 = nn.Conv2d(
+            in_channels=1, out_channels=64,
+            kernel_size=(7, 7), stride=(2, 2),
+            padding=(3, 3), bias=False,
+        )
         self.model.fc = nn.Linear(self.model.fc.in_features, len(opt.emotion_list), bias=True)
 
     def forward(self, x):

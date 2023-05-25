@@ -39,7 +39,7 @@ class Config:
 
         self.exploration_ratio_kp = 0.2
 
-        self.batch_size_kp = 8
+        self.batch_size_kp = 10
         self.batch_size_er = 16
 
         self.aggregation_metric_slice_window_width_er = 10
@@ -47,9 +47,11 @@ class Config:
 
         self.n_write_log_er = 10
 
-        self.n_write_log_kp = 10
+        self.n_write_log_kp = 50
         self.n_write_images_kp = 100
-        self.save_n_steps_kp = 300
+        self.save_n_steps_kp = 50
+
+        self.apply_augmentation_kp = False
 
         # self.l1_kp = 1.0
         # self.js_div_target = 0.1

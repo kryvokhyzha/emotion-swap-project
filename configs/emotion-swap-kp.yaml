@@ -28,14 +28,14 @@ model_params:
 train_params:
   scales: [1, 0.5, 0.25, 0.125]
   emotion_temperature: 2
-  learning_rate: 0.0002
+  learning_rate: 0.00003
   transform_params:
     sigma_affine: 0.05
     sigma_tps: 0.005
     points_tps: 5
   loss_weights:
-    emotion_vectors: 0
+    emotion_vectors: 0.1
     kp_location: 1
-    perceptual: [1, 1, 1, 1, 1]
-    equivariance_value: 1
-    equivariance_jacobian: 1
+    perceptual: [0.025, 0.025, 0.025, 0.025, 0.025]
+    equivariance_value: 0.1
+    equivariance_jacobian: 0

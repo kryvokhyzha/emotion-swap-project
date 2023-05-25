@@ -3,8 +3,6 @@ import yaml
 
 import torch
 from tensorboardX import SummaryWriter
-from torch.optim import Adam
-from torch.optim.lr_scheduler import MultiStepLR
 from torchvision.utils import make_grid
 from tqdm import tqdm
 from collections.abc import Iterable
@@ -25,7 +23,7 @@ def main(
 
     dataloader = EmotionSwapDataloader(
         opt.emotion_list, opt.path_to_stylegan_checkpoints, opt.device,
-        eps=opt.exploration_ratio_kp, apply_mtcnn=True, apply_transformations=False,
+        eps=-1.0, apply_mtcnn=True, apply_transformations=False,
     )
     em_dataloader = EmotionRecognitionDataloader(
         emotion_list=opt.emotion_list,
@@ -45,7 +43,7 @@ def main(
     kp_detector_trainable = KPDetector(
         **emotion_swap_config['model_params']['kp_detector_params'],
         **emotion_swap_config['model_params']['common_params']
-    ).train().requires_grad_(True).to(opt.device)
+    ).to(opt.device)
 
     init_step = 0
     load_path = opt.path_to_kp_weights_last
@@ -58,14 +56,11 @@ def main(
         kp_detector_trainable.load_state_dict(kp_detector.state_dict(), strict=False)
         print(f'weights were loaded from original KP detector')
 
-    kp_detector_trainable = kp_detector_trainable.requires_grad_(True).train()
+    kp_detector_trainable = kp_detector_trainable.eval().to(opt.device)
 
     emotion_estimator = EmotionRecognitionModel()
     emotion_estimator.load_state_dict(torch.load(opt.path_to_er_weights_last)['state_dict'])
     emotion_estimator = emotion_estimator.eval().requires_grad_(False).to(opt.device)
-
-    optimizer = Adam(kp_detector_trainable.parameters(), lr=emotion_swap_config['train_params']['learning_rate'])
-    scheduler = MultiStepLR(optimizer, milestones=(2000, 3000, 4000, 5000, 6000, 7000, 8000), gamma=0.5, verbose=False)
 
     if opt.apply_augmentation_kp:
         suffix = '_aug'
@@ -80,28 +75,21 @@ def main(
         suffix=suffix,
     )
 
+    opt.n_write_log_kp = 1
+    opt.n_write_images_kp = 1
+    opt.batch_size_kp = len(opt.emotion_list)
+
     for step in tqdm(itertools.count(init_step), initial=init_step, desc='infinity training loop'):
         try:
-            optimizer.zero_grad()
 
-            source, driving, source_aug, driving_aug, target_emotions = dataloader.get_batch(opt.batch_size_kp)
+            source, driving, target_emotions = dataloader.get_batch(opt.batch_size_kp)
             losses, loss_values_raw, generated = emotion_swap_full_model(
-                {
-                    'source': source, 'driving': driving,
-                    'source_aug': source_aug, 'driving_aug': driving_aug,
-                    'target_emotions': target_emotions,
-                }
+                {'source': source, 'driving': driving, 'target_emotions': target_emotions}
             )
 
             loss = sum(losses.values())
 
-            loss.backward()
-            optimizer.step()
-
-            scheduler.step()
-
             if ((step % opt.n_write_log_kp) == 0) and opt.enable_log_flag:
-                writer.add_scalar('kp-lr/learning_rate', optimizer.param_groups[0]['lr'], step)
                 writer.add_scalar("kp-loss/general_loss", loss.item(), step)
 
                 for name, l in losses.items():
@@ -114,23 +102,12 @@ def main(
 
                 if (step % opt.n_write_images_kp) == 0:
                     with torch.no_grad():
-                        if opt.use_aug_imgs_kp:
-                            out_gt = generator(source_aug, kp_source=generated['kp_source_aug'], kp_driving=generated['kp_driving_init'])['prediction']
-                            out_pred = generator(source_aug, kp_source=generated['kp_source_aug'], kp_driving=generated['kp_driving_aug'])['prediction']
-                            images = torch.cat([source_aug, driving_aug, out_gt, out_pred])
-                        else:
-                            out_gt = generator(source, kp_source=generated['kp_source'], kp_driving=generated['kp_driving_init'])['prediction']
-                            out_pred = generator(source, kp_source=generated['kp_source'], kp_driving=generated['kp_driving'])['prediction']
-                            images = torch.cat([source, driving, out_gt, out_pred])
+                        out_gt = generator(source, kp_source=generated['kp_source'], kp_driving=generated['kp_driving_init'])['prediction']
+                        out_pred = generator(source, kp_source=generated['kp_source'], kp_driving=generated['kp_driving'])['prediction']
+                        images = torch.cat([source, driving, out_gt, out_pred])
                         grid = make_grid(images, nrow=opt.batch_size_kp, padding=0)
                         writer.add_image('kp-img/source__driving__out_GT__out_pred', grid, step)
 
-                if ((step % opt.save_n_steps_kp) == 0) and opt.enable_log_flag:
-                    last_state = {
-                        'last_step': step,
-                        'state_dict': kp_detector_trainable.state_dict(),
-                    }
-                    torch.save(last_state, opt.path_to_kp_weights_last)
         except KeyboardInterrupt:
             print('interrupted by keyboard.')
             return

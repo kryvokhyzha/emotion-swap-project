@@ -5,13 +5,14 @@ from fomm.modules.model import ImagePyramide, Vgg19, Transform
 
 class EmotionSwapFullModel:
     """
-    Merge all `emotion swap` related updates into single model for better multi-gpu usage
+    Merge all `emotion swap` related updates into single model
     """
 
     def __init__(
             self, kp_extractor, kp_extractor_static,
             generator, emotion_recognition,
-            emotion_recognition_dataloader, train_params, device,
+            emotion_recognition_dataloader,
+            train_params, device, suffix,
     ):
         super(EmotionSwapFullModel, self).__init__()
         self.kp_extractor = kp_extractor
@@ -23,6 +24,7 @@ class EmotionSwapFullModel:
         self.scales = train_params['scales']
         self.pyramid = ImagePyramide(self.scales, generator.module.num_channels)
         self.pyramid = self.pyramid.to(device)
+        self.suffix = suffix
 
         self.loss_weights = train_params['loss_weights']
 
@@ -33,7 +35,7 @@ class EmotionSwapFullModel:
 
         with torch.no_grad():
             # compute initial driving KP (driving -> kp_extractor_static)
-            kp_driving_init, heatmap_driving_init = self.kp_extractor_static(x['driving'])
+            kp_driving_init, heatmap_driving_init = self.kp_extractor_static(x[f'driving{self.suffix}'])
 
             # compute driving emotion vector
             driving_er_prepared = self.emotion_recognition_dataloader.prepare_img(x['driving'])
@@ -48,21 +50,23 @@ class EmotionSwapFullModel:
         mask = mask > 0
 
         # compute predicted driving KP (source + emotion -> kp_extractor)
-        kp_driving, heatmap_driving = self.kp_extractor(x['source'], driving_emotion_vector)
+        kp_driving, heatmap_driving = self.kp_extractor(x[f'source{self.suffix}'], driving_emotion_vector)
         # compute source KP (source -> kp_extractor_static)
-        kp_source, heatmap_source = self.kp_extractor_static(x['source'])
+        kp_source, heatmap_source = self.kp_extractor_static(x[f'source{self.suffix}'])
 
         # generate image
-        generated = self.generator(x['source'], kp_source=kp_source, kp_driving=kp_driving)
-        generated.update({'kp_source': kp_source, 'kp_driving': kp_driving, 'kp_driving_init': kp_driving_init,})
+        generated = self.generator(x[f'source{self.suffix}'], kp_source=kp_source, kp_driving=kp_driving)
+        generated.update({f'kp_source{self.suffix}': kp_source, f'kp_driving{self.suffix}': kp_driving, 'kp_driving_init': kp_driving_init,})
 
         loss_values = {}
+        loss_values_raw = {}
 
-        pyramide_real = self.pyramid(x['driving'])
+        pyramide_real = self.pyramid(x[f'driving{self.suffix}'])
         pyramide_generated = self.pyramid(generated['prediction'])
 
         if sum(self.loss_weights['perceptual']) != 0:
             value_total = 0
+            value_without_weight = 0
             for scale in self.scales:
                 x_vgg = self.vgg(pyramide_generated['prediction_' + str(scale)])
                 y_vgg = self.vgg(pyramide_real['prediction_' + str(scale)])
@@ -70,11 +74,13 @@ class EmotionSwapFullModel:
                 for i, weight in enumerate(self.loss_weights['perceptual']):
                     value = torch.abs(x_vgg[i] - y_vgg[i].detach()).mean()
                     value_total += self.loss_weights['perceptual'][i] * value
+                    value_without_weight += value
                 loss_values['perceptual'] = value_total
+                loss_values_raw['perceptual'] = value_without_weight
 
         if (self.loss_weights['equivariance_value'] + self.loss_weights['equivariance_jacobian']) != 0:
-            transform = Transform(x['driving'].shape[0], **self.train_params['transform_params'])
-            transformed_frame = transform.transform_frame(x['driving'])
+            transform = Transform(x[f'driving{self.suffix}'].shape[0], **self.train_params['transform_params'])
+            transformed_frame = transform.transform_frame(x[f'driving{self.suffix}'])
             transformed_kp = self.kp_extractor(transformed_frame, driving_emotion_vector)[0]
 
             generated['transformed_frame'] = transformed_frame
@@ -84,6 +90,7 @@ class EmotionSwapFullModel:
             if self.loss_weights['equivariance_value'] != 0:
                 value = torch.abs(kp_driving['value'] - transform.warp_coordinates(transformed_kp['value'])).mean()
                 loss_values['equivariance_value'] = self.loss_weights['equivariance_value'] * value
+                loss_values_raw['equivariance_value'] = value
 
             # jacobian loss part
             if self.loss_weights['equivariance_jacobian'] != 0:
@@ -100,22 +107,31 @@ class EmotionSwapFullModel:
 
                 value = torch.abs(eye - value).mean()
                 loss_values['equivariance_jacobian'] = self.loss_weights['equivariance_jacobian'] * value
+                loss_values_raw['equivariance_jacobian'] = value
 
         # emotion vector loss part
         if self.loss_weights['emotion_vectors'] != 0:
             generated_er_prepared = self.emotion_recognition_dataloader.prepare_img(generated['prediction'])
-            generated_emotion_vector = functional.softmax(
+            generated_emotion_vector = functional.log_softmax(
                 self.emotion_recognition(generated_er_prepared) / self.train_params['emotion_temperature'],
                 dim=1,
             )
-            loss_values['emotion_vectors'] = self.loss_weights['emotion_vectors'] * functional.l1_loss(
+            # value = functional.l1_loss(
+            #     generated_emotion_vector[mask], driving_emotion_vector[mask]
+            # )
+
+            value = functional.kl_div(
                 generated_emotion_vector[mask], driving_emotion_vector[mask]
             )
+            loss_values['emotion_vectors'] = self.loss_weights['emotion_vectors'] * value
+            loss_values_raw['emotion_vectors'] = value
 
         # key point location loss part
         if self.loss_weights['kp_location'] != 0:
-            loss_values['kp_location'] = self.loss_weights['kp_location'] * sum([
+            value = sum([
                 functional.l1_loss(kp_driving[k], kp_driving_init[k]) for k in kp_driving_init.keys()
             ])
+            loss_values['kp_location'] = self.loss_weights['kp_location'] * value
+            loss_values_raw['kp_location'] = value
 
-        return loss_values, generated
+        return loss_values, loss_values_raw, generated

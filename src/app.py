@@ -30,7 +30,7 @@ def load_fomm():
         single_jacobian_map=False, pad=0, adain_size=7,
     )
 
-    last_state = torch.load(opt.path_to_kp_weights_last3)
+    last_state = torch.load(opt.path_to_kp_weights_last)
     kp_detector_trainable.load_state_dict(last_state['state_dict'])
     return (
         generator.eval().requires_grad_(False).to(opt.device),
@@ -42,8 +42,8 @@ def load_fomm():
 @st.cache(allow_output_mutation=True,)
 def load_mtcnn():
     return MTCNN(
-        image_size=256, margin=100, min_face_size=20,
-        thresholds=[0.8, 0.8, 0.8], factor=0.709, post_process=True,
+        image_size=256, margin=0, min_face_size=20,
+        thresholds=[0.6, 0.7, 0.7], factor=0.709, post_process=True,
         keep_all=True,
         device=opt.device
     )
@@ -52,7 +52,7 @@ def load_mtcnn():
 @st.cache(allow_output_mutation=True)
 def load_emotion():
     emotion_estimator = EmotionRecognitionModel()
-    emotion_estimator.load_state_dict(torch.load(opt.path_to_er_weights_last3)['state_dict'])
+    emotion_estimator.load_state_dict(torch.load(opt.path_to_er_weights_last)['state_dict'])
     return emotion_estimator.eval().requires_grad_(False).to(opt.device)
 
 
@@ -123,7 +123,7 @@ def generate_image(img_original, emotions_vector):
 
 
 if __name__ == '__main__':
-    emotion_dataloader = EmotionRecognitionDataloader(is_eval=True, use_mtcnn=False)
+    emotion_dataloader = EmotionRecognitionDataloader(opt.emotion_list, opt.path_to_stylegan_checkpoints, opt.device)
     generator, kp_detector, kp_detector_trainable = load_fomm()
 
     mtcnn = load_mtcnn()
