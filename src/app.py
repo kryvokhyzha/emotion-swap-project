@@ -2,7 +2,6 @@ import streamlit as st
 import torch
 import warnings
 import numpy as np
-import torchvision.transforms.functional as F
 
 from facenet_pytorch import MTCNN
 from PIL import Image
@@ -115,7 +114,8 @@ def generate_image(img_original, emotions_vector):
         new_w = int(box[3] - box[1])
         new_h = int(box[2] - box[0])
 
-        result.append(F.resize(out_img, size=[new_w, new_h]).detach().permute(1, 2, 0).cpu().numpy())
+        # result.append(F.resize(out_img, size=[new_w, new_h]).detach().permute(1, 2, 0).cpu().numpy())
+        result.append(out_img.detach().permute(1, 2, 0).cpu().numpy())
 
     img_cropped = img_cropped.detach().permute(0, 2, 3, 1).cpu().numpy()
 
@@ -152,7 +152,7 @@ if __name__ == '__main__':
         result_img = img_original.copy()
         if img_cropped is not None:
             for idx, (person_cropped, person_output, box) in enumerate(zip(img_cropped, out_pred, boxes)):
-                result_img[int(box[1]):int(box[1]) + person_output.shape[0], int(box[0]):int(box[0]) + person_output.shape[1]] = (person_output*255).astype(int).clip(0, 255)
+                # result_img[int(box[1]):int(box[1]) + person_output.shape[0], int(box[0]):int(box[0]) + person_output.shape[1]] = (person_output*255).astype(int).clip(0, 255)
                 with st.container():
                     beta_columns = st.columns(2)
                     beta_columns[0].image(
@@ -164,11 +164,11 @@ if __name__ == '__main__':
                         caption=f"Cropped person {idx+1} - predicted",
                     )
 
-            st.image(
-                result_img,
-                caption="Result of emotion swap",
-                width=512,
-            )
+            # st.image(
+            #     result_img,
+            #     caption="Result of emotion swap",
+            #     width=512,
+            # )
         else:
             st.warning("Sorry, I can't find face on this image.")
     # elif file_buffer is not None and file_buffer.type.startswith('video/'):

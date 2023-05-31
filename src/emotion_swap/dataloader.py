@@ -47,7 +47,7 @@ class EmotionSwapDataloader:
             data = data.unsqueeze(0).add(1).div(2).to(self.device)
         return data
 
-    def get_batch(self, batch_size):
+    def get_batch(self, batch_size, emotion=None):
         inputs_b, targets_b, emotions_b = [], [], []
         inputs_b_aug, targets_b_aug = [], []
         for b in range(batch_size):
@@ -59,7 +59,10 @@ class EmotionSwapDataloader:
 
             while data_0_aug is None or data_1_aug is None:
                 noise = torch.randn(1, 512, device=self.device)
-                emo = random.choice(self.emotion_list) if self.eps > 0 else self.emotion_list[b % len(self.emotion_list)]
+                if emotion is not None:
+                    emo = emotion
+                else:
+                    emo = random.choice(self.emotion_list) if self.eps > 0 else self.emotion_list[b % len(self.emotion_list)]
                 self.model.load_checkpoint(join(self.path_to_stylegan_checkpoints, emo), self.device)
                 data = self.model.inference(1, noise)[1:]
 
